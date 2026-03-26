@@ -1,0 +1,30 @@
+services:
+  ibmmq:
+    image: icr.io/ibm-messaging/mq:9.3.0.25-r1
+    container_name: ibmmq
+    environment:
+      LICENSE: accept
+      MQ_QMGR_NAME: QM1
+      MQ_APP_PASSWORD: passw0rd
+      MQ_ADMIN_PASSWORD: passw0rd
+      MQ_DEV: "true"
+    ports:
+      - "1414:1414"
+      - "9443:9443"
+    volumes:
+      - mqdata:/mnt/mqm
+      - ./mq-config/20-queues.mqsc:/etc/mqm/20-queues.mqsc
+    healthcheck:
+      test: ["CMD-SHELL", "chkmqready && chkmqhealthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+volumes:
+  mqdata:
