@@ -4,29 +4,11 @@ Ideas for improving `mq-metrics.ksh` when scaling to production environments wit
 
 ---
 
-## 1. Use Elasticsearch Bulk API
+## 1. ~~Use Elasticsearch Bulk API~~ (Done)
 
-**Priority: High**
+**Implemented in v2.0.0** (`feature/get_put_dates` branch).
 
-Currently the script sends one `curl` POST per queue. With 500 queues this means 500 sequential HTTP requests, each paying TCP handshake + TLS negotiation overhead.
-
-Switching to the `_bulk` endpoint would batch all documents into a single NDJSON payload and index them in one HTTP request:
-
-```
-{"index":{"_index":"metrics-mq.queue-default"}}
-{"@timestamp":"...","mq":{"queue":{"name":"APP.ORDERS.IN","depth":42,...}}}
-{"index":{"_index":"metrics-mq.queue-default"}}
-{"@timestamp":"...","mq":{"queue":{"name":"APP.ORDERS.OUT","depth":0,...}}}
-```
-
-| Metric | Current (individual POST) | With `_bulk` |
-|--------|--------------------------|--------------|
-| HTTP requests per run | ~500 | **1** |
-| TCP connections | ~500 | **1** |
-| Estimated duration (LAN) | 30–60s | **< 1s** |
-| Estimated duration (WAN) | 2–5 min | **1–5s** |
-
-Implementation: `emit_doc` appends NDJSON lines to a temp file; a new `flush_bulk` function posts the file with a single `curl` call after all queues are parsed.
+The script now collects all documents into an NDJSON payload and sends them in a single `POST /_bulk` request. Response is checked for both HTTP-level and per-item errors.
 
 ---
 
