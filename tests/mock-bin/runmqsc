@@ -1,0 +1,17 @@
+#!/bin/ksh
+# Mock runmqsc - serves canned output based on the MQSC command received
+_qmgr="${1:-QM1}"
+read -r _cmd
+
+case "$_cmd" in
+    *QLOCAL*)
+        cat "/opt/fixtures/qlocal-output-${_qmgr}.txt" 2>/dev/null || cat /opt/fixtures/qlocal-output.txt
+        ;;
+    *QSTATUS*)
+        cat "/opt/fixtures/qstatus-output-${_qmgr}.txt" 2>/dev/null || cat /opt/fixtures/qstatus-output.txt
+        ;;
+    *)
+        print "AMQ8135E: Not supported."
+        exit 1
+        ;;
+esac

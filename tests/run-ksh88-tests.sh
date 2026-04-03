@@ -1,0 +1,311 @@
+#!/bin/bash
+#
+# run-ksh88-tests.sh - Build mksh container and run mq-metrics.ksh ksh88 compatibility tests
+#
+# Usage: ./tests/run-ksh88-tests.sh
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+IMAGE_NAME="mq-metrics-ksh88-test"
+CONTAINER_NAME="mq-metrics-ksh88-test-$$"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+passed=0
+failed=0
+
+pass() {
+    echo -e "  ${GREEN}PASS${NC}: $1"
+    passed=$((passed + 1))
+}
+
+fail() {
+    echo -e "  ${RED}FAIL${NC}: $1"
+    echo -e "       $2"
+    failed=$((failed + 1))
+}
+
+# --------------------------------------------------------------------------
+# Build container image
+# --------------------------------------------------------------------------
+echo "Building ksh88 test container..."
+podman build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/Containerfile.ksh88" "$PROJECT_DIR" >/dev/null 2>&1
+echo "Build complete."
+echo ""
+
+# --------------------------------------------------------------------------
+# Helper: run script inside container
+# --------------------------------------------------------------------------
+run_in_container() {
+    podman run --rm --name "$CONTAINER_NAME" \
+        -e "MQ_METRICS_QMGR_LIST=${MQ_METRICS_QMGR_LIST:-QM1}" \
+        -e "MQ_METRICS_ELASTIC_URL=${MQ_METRICS_ELASTIC_URL:-}" \
+        -e "MQ_METRICS_ELASTIC_API_KEY=${MQ_METRICS_ELASTIC_API_KEY:-}" \
+        -e "MQ_METRICS_ELASTIC_INDEX=${MQ_METRICS_ELASTIC_INDEX:-metrics-mq.queue-default}" \
+        -e "MQ_METRICS_EXCLUDE_QUEUES=${MQ_METRICS_EXCLUDE_QUEUES:-^SYSTEM\.|^AMQ\.}" \
+        -e "MQ_METRICS_ADVANCED=${MQ_METRICS_ADVANCED:-}" \
+        -e "MQ_METRICS_FILTER_WEBSPHERE=${MQ_METRICS_FILTER_WEBSPHERE:-1}" \
+        "$IMAGE_NAME" /opt/mq-metrics.ksh "$@" 2>/tmp/mq-metrics-test-stderr.$$
+}
+
+# --------------------------------------------------------------------------
+# Test 1: Basic mode (ADVANCED off) — dry-run
+# --------------------------------------------------------------------------
+echo "=== Test 1: Basic mode (no ADVANCED) ==="
+
+MQ_METRICS_ADVANCED="" \
+output=$(run_in_container)
+
+# Should have 3 queues (SYSTEM.* excluded)
+count=$(echo "$output" | grep -c '"depth"' || true)
+if [[ "$count" -eq 3 ]]; then
+    pass "3 queue documents produced (SYSTEM queue excluded)"
+else
+    fail "Expected 3 queue documents, got $count" "$output"
+fi
+
+# Should NOT have advanced fields
+if echo "$output" | grep -q '"input_handles"'; then
+    fail "Advanced fields present in basic mode" "Found input_handles"
+else
+    pass "No advanced fields in basic mode"
+fi
+
+if echo "$output" | grep -q '"depth_percent"'; then
+    fail "depth_percent present in basic mode" "Should only appear with ADVANCED=1"
+else
+    pass "No depth_percent in basic mode"
+fi
+
+# Check basic JSON structure
+if echo "$output" | grep -q '"queue_manager"'; then
+    pass "mq.queue_manager present"
+else
+    fail "mq.queue_manager missing" "$output"
+fi
+
+if echo "$output" | grep -q '"service"'; then
+    pass "service block present"
+else
+    fail "service block missing" "$output"
+fi
+
+# Check host.name uses mock hostname
+if echo "$output" | grep -q '"test-host"'; then
+    pass "hostname mock working"
+else
+    fail "hostname mock not working" "$output"
+fi
+
+echo ""
+
+# --------------------------------------------------------------------------
+# Test 2: Advanced mode (ADVANCED=1) — dry-run
+# --------------------------------------------------------------------------
+echo "=== Test 2: Advanced mode (ADVANCED=1) ==="
+
+MQ_METRICS_ADVANCED="1" \
+output=$(run_in_container)
+
+count=$(echo "$output" | grep -c '"depth"' || true)
+if [[ "$count" -eq 3 ]]; then
+    pass "3 queue documents produced"
+else
+    fail "Expected 3 queue documents, got $count" "$output"
+fi
+
+# Check advanced fields on APP.ORDERS.IN (has full QSTATUS data)
+orders_in=$(echo "$output" | grep "APP.ORDERS.IN")
+if echo "$orders_in" | grep -q '"input_handles": 1'; then
+    pass "input_handles present for APP.ORDERS.IN"
+else
+    fail "input_handles missing for APP.ORDERS.IN" "$orders_in"
+fi
+
+if echo "$orders_in" | grep -q '"output_handles": 2'; then
+    pass "output_handles present for APP.ORDERS.IN"
+else
+    fail "output_handles missing for APP.ORDERS.IN" "$orders_in"
+fi
+
+if echo "$orders_in" | grep -q '"uncommitted": false'; then
+    pass "UNCOM(NO) mapped to uncommitted: false"
+else
+    fail "UNCOM mapping incorrect" "$orders_in"
+fi
+
+if echo "$orders_in" | grep -q '"oldest_message_age": 462'; then
+    pass "MSGAGE(462) present"
+else
+    fail "MSGAGE missing" "$orders_in"
+fi
+
+if echo "$orders_in" | grep -q '"queue_time_short": 12345'; then
+    pass "QTIME short component parsed"
+else
+    fail "QTIME short missing" "$orders_in"
+fi
+
+if echo "$orders_in" | grep -q '"queue_time_long": 67890'; then
+    pass "QTIME long component parsed"
+else
+    fail "QTIME long missing" "$orders_in"
+fi
+
+if echo "$orders_in" | grep -q '"last_put_timestamp": "2026-04-03T15:24:19Z"'; then
+    pass "LPUTDATE+LPUTTIME converted to ISO 8601"
+else
+    fail "last_put_timestamp incorrect" "$orders_in"
+fi
+
+if echo "$orders_in" | grep -q '"last_get_timestamp": "2026-04-03T14:30:05Z"'; then
+    pass "LGETDATE+LGETTIME converted to ISO 8601"
+else
+    fail "last_get_timestamp incorrect" "$orders_in"
+fi
+
+# Check depth_percent for APP.ORDERS.IN: 17/10000 = 0.17
+if echo "$orders_in" | grep -q '"depth_percent": 0.17'; then
+    pass "depth_percent calculated correctly (17/10000 = 0.17)"
+else
+    fail "depth_percent incorrect for APP.ORDERS.IN" "$orders_in"
+fi
+
+# Check UNCOM(YES) mapping on APP.PAYMENTS.IN
+payments_in=$(echo "$output" | grep "APP.PAYMENTS.IN")
+if echo "$payments_in" | grep -q '"uncommitted": true'; then
+    pass "UNCOM(YES) mapped to uncommitted: true"
+else
+    fail "UNCOM(YES) mapping incorrect" "$payments_in"
+fi
+
+# Check depth_percent for APP.PAYMENTS.IN: 250/50000 = 0.50
+if echo "$payments_in" | grep -q '"depth_percent": 0.50'; then
+    pass "depth_percent calculated correctly (250/50000 = 0.50)"
+else
+    fail "depth_percent incorrect for APP.PAYMENTS.IN" "$payments_in"
+fi
+
+echo ""
+
+# --------------------------------------------------------------------------
+# Test 3: Empty MONQ fields (APP.ORDERS.OUT has no timestamp data)
+# --------------------------------------------------------------------------
+echo "=== Test 3: Empty MONQ fields ==="
+
+MQ_METRICS_ADVANCED="1" \
+output=$(run_in_container)
+
+orders_out=$(echo "$output" | grep "APP.ORDERS.OUT")
+
+# LPUTDATE/LPUTTIME are blank — should NOT have last_put_timestamp
+if echo "$orders_out" | grep -q '"last_put_timestamp"'; then
+    fail "last_put_timestamp present for empty MONQ data" "$orders_out"
+else
+    pass "last_put_timestamp omitted for empty MONQ data"
+fi
+
+if echo "$orders_out" | grep -q '"last_get_timestamp"'; then
+    fail "last_get_timestamp present for empty MONQ data" "$orders_out"
+else
+    pass "last_get_timestamp omitted for empty MONQ data"
+fi
+
+# QTIME( , ) should not produce queue_time fields
+if echo "$orders_out" | grep -q '"queue_time_short"'; then
+    fail "queue_time_short present for empty QTIME" "$orders_out"
+else
+    pass "queue_time_short omitted for empty QTIME"
+fi
+
+# depth_percent for 0/5000 = 0.00
+if echo "$orders_out" | grep -q '"depth_percent": 0.00'; then
+    pass "depth_percent 0.00 for empty queue"
+else
+    fail "depth_percent incorrect for empty queue" "$orders_out"
+fi
+
+echo ""
+
+# --------------------------------------------------------------------------
+# Test 4: Auto-discover queue managers
+# --------------------------------------------------------------------------
+echo "=== Test 4: Auto-discover queue managers ==="
+
+MQ_METRICS_QMGR_LIST="" MQ_METRICS_ADVANCED="" \
+output=$(run_in_container "" 2>/tmp/mq-metrics-test-stderr.$$ || true)
+stderr=$(cat /tmp/mq-metrics-test-stderr.$$ 2>/dev/null || true)
+
+# dspmq mock returns QM1 (Running) and QM2 (Ended normally) — only QM1 should be used
+if echo "$stderr" | grep -q "Queue managers:.*QM1"; then
+    pass "Auto-discovered QM1 from dspmq"
+else
+    fail "QM1 not discovered" "$stderr"
+fi
+
+if echo "$stderr" | grep -q "QM2"; then
+    fail "QM2 (Ended normally) should not be discovered" "$stderr"
+else
+    pass "QM2 (Ended normally) correctly excluded"
+fi
+
+echo ""
+
+# --------------------------------------------------------------------------
+# Test 5: Bulk API payload format
+# --------------------------------------------------------------------------
+echo "=== Test 5: Bulk API payload format ==="
+
+MQ_METRICS_ADVANCED="1" \
+MQ_METRICS_ELASTIC_URL="http://mock-elastic:9200" \
+MQ_METRICS_ELASTIC_API_KEY="test-key" \
+output=$(podman run --rm --name "$CONTAINER_NAME" \
+    -e "MQ_METRICS_QMGR_LIST=QM1" \
+    -e "MQ_METRICS_ELASTIC_URL=http://mock-elastic:9200" \
+    -e "MQ_METRICS_ELASTIC_API_KEY=test-key" \
+    -e "MQ_METRICS_ELASTIC_INDEX=metrics-mq.queue-default" \
+    -e "MQ_METRICS_EXCLUDE_QUEUES=^SYSTEM\.|^AMQ\." \
+    -e "MQ_METRICS_ADVANCED=1" \
+    -e "MQ_METRICS_FILTER_WEBSPHERE=1" \
+    "$IMAGE_NAME" -c '/opt/mq-metrics.ksh; cat /tmp/mq-metrics-test-bulk-payload.ndjson 2>/dev/null' 2>/dev/null)
+
+# Count action lines
+action_count=$(echo "$output" | grep -c '{ "create": { } }' || true)
+if [[ "$action_count" -eq 3 ]]; then
+    pass "3 bulk action lines present"
+else
+    fail "Expected 3 action lines, got $action_count" "$output"
+fi
+
+# Total lines should be 6 (3 action + 3 doc)
+total_lines=$(echo "$output" | wc -l | tr -d ' ')
+if [[ "$total_lines" -eq 6 ]]; then
+    pass "6 NDJSON lines (3 action + 3 doc)"
+else
+    fail "Expected 6 NDJSON lines, got $total_lines" ""
+fi
+
+echo ""
+
+# --------------------------------------------------------------------------
+# Summary
+# --------------------------------------------------------------------------
+echo "========================================"
+total=$((passed + failed))
+echo -e "Results: ${GREEN}${passed} passed${NC}, ${RED}${failed} failed${NC} out of ${total} tests"
+echo "========================================"
+
+# Cleanup
+rm -f /tmp/mq-metrics-test-stderr.$$
+
+if [[ $failed -gt 0 ]]; then
+    exit 1
+fi
+exit 0

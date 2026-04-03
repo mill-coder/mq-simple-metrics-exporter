@@ -1,0 +1,3 @@
+#!/bin/ksh
+# Mock dspmq - returns canned queue manager status
+cat /opt/fixtures/dspmq-output.txt

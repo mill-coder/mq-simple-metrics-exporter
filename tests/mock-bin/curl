@@ -1,0 +1,34 @@
+#!/bin/ksh
+# Mock curl - captures bulk payload and returns success
+# Parse args to find the data file and output file
+_mock_output=""
+_mock_data=""
+_mock_write_out=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o) shift ; _mock_output="$1" ;;
+        -w) shift ; _mock_write_out="$1" ;;
+        --data-binary) shift ; _mock_data="$1" ;;
+        *) ;;
+    esac
+    shift
+done
+
+# Write a successful response body
+if [[ -n "$_mock_output" ]]; then
+    print '{"took":5,"errors":false,"items":[]}' > "$_mock_output"
+fi
+
+# Save the bulk payload for assertion
+if [[ -n "$_mock_data" ]]; then
+    _datafile="${_mock_data#@}"
+    if [[ -f "$_datafile" ]]; then
+        cp "$_datafile" /tmp/mq-metrics-test-bulk-payload.ndjson
+    fi
+fi
+
+# Print HTTP status code (what -w '%{http_code}' would return)
+if [[ "$_mock_write_out" = *http_code* ]]; then
+    print "200"
+fi

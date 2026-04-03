@@ -1,0 +1,20 @@
+5724-H72 (C) Copyright IBM Corp. 1994, 2024.
+Starting MQSC for queue manager QM1.
+
+
+     1 : DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH WHERE(DESCR NL 'WebSphere MQ')
+AMQ8409I: Display Queue details.
+   QUEUE(APP.ORDERS.IN)                    TYPE(QLOCAL)
+   CURDEPTH(17)                            MAXDEPTH(10000)
+AMQ8409I: Display Queue details.
+   QUEUE(APP.ORDERS.OUT)                   TYPE(QLOCAL)
+   CURDEPTH(0)                             MAXDEPTH(5000)
+AMQ8409I: Display Queue details.
+   QUEUE(APP.PAYMENTS.IN)                  TYPE(QLOCAL)
+   CURDEPTH(250)                           MAXDEPTH(50000)
+AMQ8409I: Display Queue details.
+   QUEUE(SYSTEM.DEFAULT.LOCAL.QUEUE)       TYPE(QLOCAL)
+   CURDEPTH(0)                             MAXDEPTH(5000)
+One MQSC command read.
+No commands have a syntax error.
+All valid MQSC commands were processed.

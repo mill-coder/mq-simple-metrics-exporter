@@ -1,0 +1,2 @@
+QMNAME(QM1)                                               STATUS(Running)
+QMNAME(QM2)                                               STATUS(Ended normally)

@@ -83,16 +83,15 @@ queue="${queue%%\)*}"
 
 ### Solution 2: Use a helper function (recommended)
 
-Extract the parsing into a separate function outside any `case` block:
+Extract the parsing into a separate function outside any `case` block. The function uses escaped parentheses and prefixed globals for ksh88 compatibility (see `docs/ksh88-compat-guidelines.md`):
 
 ```ksh
 extract_val() {
-    typeset key="$1" src="$2"
-    typeset tmp
-    case "$src" in
-        *"${key}("*)
-            tmp="${src#*"${key}("}"
-            print "${tmp%%\)*}"
+    _ev_key="$1" ; _ev_src="$2"
+    case "$_ev_src" in
+        *${_ev_key}\(*)
+            _ev_tmp="${_ev_src#*${_ev_key}\(}"
+            print "${_ev_tmp%%\)*}"
             ;;
     esac
 }
@@ -215,10 +214,11 @@ AMQ8450I: Display queue status details.
 
 ## Platform Consistency
 
-Tested on MQ 9.3.0.25 Linux container. Based on IBM documentation and web research:
+Tested on MQ 9.3.0.25 Linux container. Shell parsing validated on mksh (ksh88 proxy) via `tests/run-ksh88-tests.sh`. Based on IBM documentation and web research:
 
 - **Output format** (two-column KEY(VALUE) layout) is consistent across all platforms
 - **Timestamp format** (HH.MM.SS with dots) is consistent across all platforms
 - **Line wrapping** behavior with long names is consistent
 - **Interactive vs piped output** -- no difference in format when `runmqsc` output is redirected or piped
 - The ksh case/parenthesis bug is a **shell** issue, not an MQ issue -- it applies wherever ksh is the interpreter
+- The `extract_val()` helper and all ksh88 compatibility patterns are validated by the mksh test harness

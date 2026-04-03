@@ -14,16 +14,18 @@ echo "DISPLAY QSTATUS(*) TYPE(QUEUE) ALL" | runmqsc QM1
 
 | Attribute | Type | Description | Requires MONQ | Implemented |
 |-----------|------|-------------|:---:|:---:|
-| **CURDEPTH** | int | Current message count (committed + uncommitted) | No | Yes |
-| **IPPROCS** | int | Open input handles (consumers) | No | Yes |
-| **OPPROCS** | int | Open output handles (producers) | No | Yes |
-| **UNCOM** | string | Uncommitted changes pending: `YES` or `NO` | No | Yes |
-| **LPUTDATE** | string | Date of last MQPUT: `YYYY-MM-DD` or single space when no data | Yes | Yes |
-| **LPUTTIME** | string | Time of last MQPUT: `HH.MM.SS` (dots, not colons) or single space | Yes | Yes |
-| **LGETDATE** | string | Date of last MQGET: `YYYY-MM-DD` or single space | Yes | Yes |
-| **LGETTIME** | string | Time of last MQGET: `HH.MM.SS` or single space | Yes | Yes |
-| **MSGAGE** | int | Age in seconds of the oldest message on the queue. `0` for empty queues, single space when MONQ off | Yes | Yes |
-| **QTIME** | pair | Avg time (microseconds) messages spend on queue. Two values: short-term, long-term. Format: `QTIME(12345, 67890)` or `QTIME( , )` when empty | Yes | Yes |
+| **CURDEPTH** | int | Current message count (committed + uncommitted) | No | Yes (A) |
+| **IPPROCS** | int | Open input handles (consumers) | No | Yes (A) |
+| **OPPROCS** | int | Open output handles (producers) | No | Yes (A) |
+| **UNCOM** | string | Uncommitted changes pending: `YES` or `NO` | No | Yes (A) |
+| **LPUTDATE** | string | Date of last MQPUT: `YYYY-MM-DD` or single space when no data | Yes | Yes (A) |
+| **LPUTTIME** | string | Time of last MQPUT: `HH.MM.SS` (dots, not colons) or single space | Yes | Yes (A) |
+| **LGETDATE** | string | Date of last MQGET: `YYYY-MM-DD` or single space | Yes | Yes (A) |
+| **LGETTIME** | string | Time of last MQGET: `HH.MM.SS` or single space | Yes | Yes (A) |
+| **MSGAGE** | int | Age in seconds of the oldest message on the queue. `0` for empty queues, single space when MONQ off | Yes | Yes (A) |
+| **QTIME** | pair | Avg time (microseconds) messages spend on queue. Two values: short-term, long-term. Format: `QTIME(12345, 67890)` or `QTIME( , )` when empty | Yes | Yes (A) |
+
+> **(A)** = Requires `MQ_METRICS_ADVANCED=1`. QSTATUS collection is opt-in.
 | **MONQ** | string | Monitoring level: `OFF`, `LOW`, `MEDIUM`, `HIGH` | N/A | No |
 | **MEDIALOG** | string | Oldest log extent needed for media recovery | No | No |
 | **CURFSIZE** | int | Current queue file size (bytes) -- MQ 9.1.5+ | No | No |
@@ -180,15 +182,15 @@ echo "DISPLAY CONN(*) ALL" | runmqsc QM1
 
 ## Derived Fields (computed in mq-metrics.ksh)
 
-These fields are not from runmqsc but computed by the script from raw data:
+These fields are not from runmqsc but computed by the script from raw data. All require `MQ_METRICS_ADVANCED=1`.
 
 | Field | Computation | Implemented |
 |-------|-------------|:---:|
-| `last_put_timestamp` | `LPUTDATE` + `LPUTTIME` combined to ISO 8601 | Yes |
-| `last_get_timestamp` | `LGETDATE` + `LGETTIME` combined to ISO 8601 | Yes |
-| `last_put_elapsed_seconds` | `now - last_put_timestamp` | Yes |
-| `last_get_elapsed_seconds` | `now - last_get_timestamp` | Yes |
-| `depth_percent` | `CURDEPTH / MAXDEPTH * 100` | Yes |
+| `depth_percent` | `CURDEPTH / MAXDEPTH * 100` | Yes (A) |
+| `last_put_timestamp` | `LPUTDATE` + `LPUTTIME` combined to ISO 8601 | Yes (A) |
+| `last_get_timestamp` | `LGETDATE` + `LGETTIME` combined to ISO 8601 | Yes (A) |
+| `last_put_elapsed_seconds` | `now - last_put_timestamp` | Yes (A) |
+| `last_get_elapsed_seconds` | `now - last_get_timestamp` | Yes (A) |
 
 ---
 

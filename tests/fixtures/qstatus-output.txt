@@ -1,0 +1,44 @@
+5724-H72 (C) Copyright IBM Corp. 1994, 2024.
+Starting MQSC for queue manager QM1.
+
+
+     1 : DISPLAY QSTATUS(*) TYPE(QUEUE) ALL
+AMQ8450I: Display queue status details.
+   QUEUE(APP.ORDERS.IN)                    TYPE(QUEUE)
+   CURDEPTH(17)                            CURFSIZE(1)
+   CURMAXFS(2088960)                       IPPROCS(1)
+   LGETDATE(2026-04-03)                    LGETTIME(14.30.05)
+   LPUTDATE(2026-04-03)                    LPUTTIME(15.24.19)
+   MEDIALOG( )                             MONQ(LOW)
+   MSGAGE(462)                             OPPROCS(2)
+   QTIME(12345, 67890)                     UNCOM(NO)
+AMQ8450I: Display queue status details.
+   QUEUE(APP.ORDERS.OUT)                   TYPE(QUEUE)
+   CURDEPTH(0)                             CURFSIZE(1)
+   CURMAXFS(2088960)                       IPPROCS(0)
+   LGETDATE( )                             LGETTIME( )
+   LPUTDATE( )                             LPUTTIME( )
+   MEDIALOG( )                             MONQ(LOW)
+   MSGAGE(0)                               OPPROCS(0)
+   QTIME( , )                              UNCOM(NO)
+AMQ8450I: Display queue status details.
+   QUEUE(APP.PAYMENTS.IN)                  TYPE(QUEUE)
+   CURDEPTH(250)                           CURFSIZE(1)
+   CURMAXFS(2088960)                       IPPROCS(3)
+   LGETDATE(2026-04-03)                    LGETTIME(15.20.00)
+   LPUTDATE(2026-04-03)                    LPUTTIME(15.24.55)
+   MEDIALOG( )                             MONQ(LOW)
+   MSGAGE(120)                             OPPROCS(1)
+   QTIME(5000, 8000)                       UNCOM(YES)
+AMQ8450I: Display queue status details.
+   QUEUE(SYSTEM.DEFAULT.LOCAL.QUEUE)       TYPE(QUEUE)
+   CURDEPTH(0)                             CURFSIZE(1)
+   CURMAXFS(2088960)                       IPPROCS(0)
+   LGETDATE( )                             LGETTIME( )
+   LPUTDATE( )                             LPUTTIME( )
+   MEDIALOG( )                             MONQ(OFF)
+   MSGAGE( )                               OPPROCS(0)
+   QTIME( , )                              UNCOM(NO)
+One MQSC command read.
+No commands have a syntax error.
+All valid MQSC commands were processed.

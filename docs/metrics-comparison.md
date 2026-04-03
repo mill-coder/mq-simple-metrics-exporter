@@ -10,7 +10,7 @@ Comparison of metrics available from IBM MQ's built-in Prometheus exporter (CD c
 |----------|-------------|-------------------|---------------|
 | **Prometheus exporter** | CD container images only (`MQ_ENABLE_METRICS=true`, port 9157) | Pull-based HTTP scrape | Prometheus text format |
 | **runmqsc** | All MQ installations (LTS, CD, AIX, Linux, Windows) | On-demand command execution | Text, requires parsing |
-| **mq-metrics.ksh** (current) | Anywhere `runmqsc` is available | Cron-scheduled ksh script | ECS JSON to Elasticsearch |
+| **mq-metrics.ksh** (v2.0.0) | Anywhere `runmqsc` is available | Cron-scheduled ksh88 script | ECS JSON to Elasticsearch (Bulk API) |
 
 ---
 
@@ -30,18 +30,20 @@ Comparison of metrics available from IBM MQ's built-in Prometheus exporter (CD c
 | Purged messages | `ibmmq_queue_purged_message_count` | Not directly available | No |
 | Persistent msg count | `ibmmq_queue_persistent_message_count` | Not directly available | No |
 | Non-persistent msg count | `ibmmq_queue_non_persistent_message_count` | Not directly available | No |
-| Open input processes | Not exposed | `DISPLAY QSTATUS(*) IPPROCS` | No |
-| Open output processes | Not exposed | `DISPLAY QSTATUS(*) OPPROCS` | No |
-| Oldest message age | `ibmmq_queue_oldest_message_age` (\*\*) | `DISPLAY QSTATUS(*) MSGAGE` | No |
-| Avg queue time (short) | `ibmmq_queue_qtime_short` (\*\*) | `DISPLAY QSTATUS(*) QTIME` | No |
-| Avg queue time (long) | `ibmmq_queue_qtime_long` (\*\*) | `DISPLAY QSTATUS(*) QTIME` | No |
-| Last GET date/time | Not exposed | `DISPLAY QSTATUS(*) LGETDATE LGETTIME` | No |
-| Last PUT date/time | Not exposed | `DISPLAY QSTATUS(*) LPUTDATE LPUTTIME` | No |
-| Uncommitted messages | Not exposed | `DISPLAY QSTATUS(*) UNCOM` | No |
+| Open input processes | Not exposed | `DISPLAY QSTATUS(*) IPPROCS` | Yes (A) |
+| Open output processes | Not exposed | `DISPLAY QSTATUS(*) OPPROCS` | Yes (A) |
+| Oldest message age | `ibmmq_queue_oldest_message_age` (\*\*) | `DISPLAY QSTATUS(*) MSGAGE` | Yes (A) |
+| Avg queue time (short) | `ibmmq_queue_qtime_short` (\*\*) | `DISPLAY QSTATUS(*) QTIME` | Yes (A) |
+| Avg queue time (long) | `ibmmq_queue_qtime_long` (\*\*) | `DISPLAY QSTATUS(*) QTIME` | Yes (A) |
+| Last GET date/time | Not exposed | `DISPLAY QSTATUS(*) LGETDATE LGETTIME` | Yes (A) |
+| Last PUT date/time | Not exposed | `DISPLAY QSTATUS(*) LPUTDATE LPUTTIME` | Yes (A) |
+| Uncommitted messages | Not exposed | `DISPLAY QSTATUS(*) UNCOM` | Yes (A) |
 
 (\*) PUT/GET counts from `DISPLAY QSTATUS` are available as monitoring data only if `MONQ` is enabled on the queue or queue manager. They reflect activity since the QM started, not per-interval deltas.
 
 (\*\*) Requires queue monitoring to be enabled (`ALTER QLOCAL(...) MONQ(MEDIUM)` or `MONQ(HIGH)`).
+
+(A) Requires `MQ_METRICS_ADVANCED=1`. These fields come from `DISPLAY QSTATUS` which is only collected when advanced mode is enabled. Timestamp fields additionally require MONQ to be enabled on the queue manager.
 
 ---
 
@@ -136,12 +138,12 @@ Connection-level detail is a strength of `runmqsc` — the Prometheus exporter o
 - Browse operation counts
 - Persistent / non-persistent message breakdown
 
-### Metrics only available via runmqsc
-- Open input/output process counts (IPPROCS, OPPROCS)
-- Last GET/PUT timestamps (LGETDATE, LGETTIME, LPUTDATE, LPUTTIME)
-- Uncommitted message count (UNCOM)
-- Per-connection detail (APPLTAG, USERID, CONTYPE)
-- Channel substate and SSL cipher details
+### Metrics only available via runmqsc (all now collected by mq-metrics.ksh with `ADVANCED=1`)
+- Open input/output process counts (IPPROCS, OPPROCS) -- `mq.queue.input_handles`, `mq.queue.output_handles`
+- Last GET/PUT timestamps (LGETDATE, LGETTIME, LPUTDATE, LPUTTIME) -- `mq.queue.last_get_timestamp`, `mq.queue.last_put_timestamp`
+- Uncommitted message flag (UNCOM) -- `mq.queue.uncommitted`
+- Per-connection detail (APPLTAG, USERID, CONTYPE) -- not yet collected
+- Channel substate and SSL cipher details -- not yet collected
 
 ---
 
@@ -149,11 +151,14 @@ Connection-level detail is a strength of `runmqsc` — the Prometheus exporter o
 
 The following metrics could be added to `mq-metrics.ksh` using additional MQSC commands, without any extra dependencies:
 
-| Category | MQSC command | Key fields | Notes |
-|----------|-------------|------------|-------|
-| Queue depth (current) | `DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH` | depth, max_depth | Already implemented |
-| Queue activity | `DISPLAY QSTATUS(*) IPPROCS OPPROCS MSGAGE QTIME` | open handles, oldest msg, avg latency | Requires MONQ enabled |
-| Queue timestamps | `DISPLAY QSTATUS(*) LGETDATE LGETTIME LPUTDATE LPUTTIME` | last activity times | Requires MONQ enabled |
-| Channel status | `DISPLAY CHSTATUS(*) STATUS BYTSSENT BYTSRCVD MSGS` | status, throughput | Per active channel instance |
-| QM status | `DISPLAY QMSTATUS` | status, connection count | Single command |
-| Connections | `DISPLAY CONN(*) APPLTAG USERID CHANNEL` | who is connected | Can be large output |
+| Category | MQSC command | Key fields | Status |
+|----------|-------------|------------|--------|
+| Queue depth (current) | `DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH` | depth, max_depth | Implemented (always) |
+| Queue activity | `DISPLAY QSTATUS(*) IPPROCS OPPROCS MSGAGE QTIME` | open handles, oldest msg, avg latency | Implemented (ADVANCED=1) |
+| Queue timestamps | `DISPLAY QSTATUS(*) LGETDATE LGETTIME LPUTDATE LPUTTIME` | last activity times | Implemented (ADVANCED=1) |
+| Queue uncommitted | `DISPLAY QSTATUS(*) UNCOM` | uncommitted flag | Implemented (ADVANCED=1) |
+| Derived: depth_percent | computed from CURDEPTH/MAXDEPTH | queue fullness % | Implemented (ADVANCED=1) |
+| Derived: elapsed seconds | computed from timestamps + epoch | time since last put/get | Implemented (ADVANCED=1) |
+| Channel status | `DISPLAY CHSTATUS(*) STATUS BYTSSENT BYTSRCVD MSGS` | status, throughput | Not yet implemented |
+| QM status | `DISPLAY QMSTATUS` | status, connection count | Not yet implemented |
+| Connections | `DISPLAY CONN(*) APPLTAG USERID CHANNEL` | who is connected | Not yet implemented |

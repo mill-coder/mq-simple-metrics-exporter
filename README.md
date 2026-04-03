@@ -1,131 +1,103 @@
 # MQ Metrics
 
-## Project Overview
-
-A lightweight tooling application that extracts metrics from IBM MQ Manager instances and regularly pushes them into an Elastic Stack (Elasticsearch + Kibana).
+A lightweight Korn shell script that extracts metrics from IBM MQ queue managers and pushes them to Elasticsearch via the Bulk API.
 
 ## Target Environment
 
-- **IBM MQ 9.3 LTS** ; capability to run on **AIX servers** (script written in Korn shell).
-- **No Prometheus metrics endpoint** — the built-in `/metrics` feature is not available on all setups (AIX, ...).
-- Metrics collected via **`runmqsc`** (MQSC commands) — runs locally on each AIX host, zero extra dependencies.
+- **IBM MQ 9.3 LTS** on **AIX servers** (ksh88-compatible)
+- Metrics collected via `runmqsc` (MQSC commands) -- zero dependencies beyond the MQ installation
+- Each AIX host runs the script locally via cron, avoiding cross-zone firewall openings
 
-## Architecture
+## What It Collects
 
-- **Source**: IBM MQ LTS — queue discovery and depth via `DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH` through `runmqsc`.
-- **Sink**: Elasticsearch — authenticated via API key (`Authorization: ApiKey <encoded>`).
-- **App**: `mq-metrics.ksh` — a Korn shell script that polls queue metrics and posts ECS-compliant JSON. Designed to run via cron on each host.
-- **Output format**: Elastic Common Schema (ECS) 8.11.0 — documents land in a data stream named `metrics-mq.queue-<namespace>`.
+| Mode | MQSC Command | Metrics |
+|------|-------------|---------|
+| **Basic** (default) | `DISPLAY QLOCAL(*)` | Queue depth, max depth |
+| **Advanced** (`MQ_METRICS_ADVANCED=1`) | + `DISPLAY QSTATUS(*)` | Depth %, input/output handles, uncommitted flag, oldest message age, queue time (short/long), last put/get timestamps, elapsed seconds since last put/get |
 
-## ECS Document Schema
+Output: one ECS 8.11.0 JSON document per queue, sent as a single `_bulk` request to Elasticsearch.
 
-Each queue produces one JSON document per collection run:
+## Quick Start
 
-```json
-{
-  "@timestamp": "2026-03-26T21:50:55Z",
-  "ecs": { "version": "8.11.0" },
-  "event": {
-    "kind": "metric",
-    "category": ["host"],
-    "type": ["info"],
-    "module": "mq",
-    "dataset": "mq.queue"
-  },
-  "data_stream": {
-    "type": "metrics",
-    "dataset": "mq.queue",
-    "namespace": "default"
-  },
-  "host": { "name": "<hostname>" },
-  "agent": { "name": "mq-metrics", "version": "1.0.0", "type": "mq-metrics" },
-  "service": { "name": "ibm-mq", "type": "messaging" },
-  "mq": {
-    "queue_manager": { "name": "QM1" },
-    "queue": {
-      "name": "APP.ORDERS.IN",
-      "type": "local",
-      "depth": 3,
-      "max_depth": 10000
-    }
-  }
-}
+```bash
+# Start the dev MQ container
+podman compose up -d
+./mq-config/seed-queues.sh
+
+# Dry-run (prints JSON to stdout)
+MQ_METRICS_QMGR_LIST=QM1 ./mq-metrics.ksh
+
+# Dry-run with advanced metrics
+MQ_METRICS_QMGR_LIST=QM1 MQ_METRICS_ADVANCED=1 ./mq-metrics.ksh
+
+# Push to Elasticsearch
+MQ_METRICS_ELASTIC_URL=https://elastic.corp:9200 \
+MQ_METRICS_ELASTIC_API_KEY=<key> \
+MQ_METRICS_QMGR_LIST=QM1 \
+MQ_METRICS_ADVANCED=1 \
+  ./mq-metrics.ksh
 ```
-
-Key fields:
-- `mq.queue.depth` — current message count (CURDEPTH)
-- `mq.queue.max_depth` — queue capacity (MAXDEPTH)
-- `mq.queue_manager.name` — identifies which QM the metric came from
-- `host.name` — identifies which AIX host collected the metric
-- `data_stream.*` — enables Elasticsearch data stream routing (`metrics-mq.queue-default`)
 
 ## Configuration
 
-`mq-metrics.ksh` is configured via environment variables:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `MQ_METRICS_ELASTIC_URL` | Yes | — | Elasticsearch base URL |
-| `MQ_METRICS_ELASTIC_API_KEY` | Yes | — | Elastic API key (base64-encoded) |
-| `MQ_METRICS_ELASTIC_INDEX` | No | `metrics-mq.queue-default` | Target index / data stream |
-| `MQ_METRICS_QMGR_LIST` | No | auto-discover via `dspmq` | Comma-separated QM names |
-| `MQ_METRICS_EXCLUDE_QUEUES` | No | `^SYSTEM\.\|^AMQ\.` | Regex of queues to skip |
-
-When `MQ_METRICS_ELASTIC_URL` is unset, documents are printed to stdout (dry-run mode).
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MQ_METRICS_ELASTIC_URL` | -- | Elasticsearch base URL (unset = dry-run to stdout) |
+| `MQ_METRICS_ELASTIC_API_KEY` | -- | Elastic API key for authentication |
+| `MQ_METRICS_ELASTIC_INDEX` | `metrics-mq.queue-default` | Target index / data stream |
+| `MQ_METRICS_QMGR_LIST` | auto-discover via `dspmq` | Comma-separated QM names (also accepts `$1` positional arg) |
+| `MQ_METRICS_EXCLUDE_QUEUES` | `^SYSTEM\.\|^AMQ\.` | Extended regex of queues to skip |
+| `MQ_METRICS_ADVANCED` | off | Set to `1` to enable QSTATUS collection and derived fields |
+| `MQ_METRICS_FILTER_WEBSPHERE` | `1` (on) | Set to `0` to disable `WHERE(DESCR NL 'WebSphere MQ')` filter |
 
 ## Project Structure
 
 ```
-mq-metrics.ksh                # Main collector script (ksh) — the deployable artifact
+mq-metrics.ksh                # Main collector script (ksh88-compatible)
 compose.yaml                  # Podman Compose: IBM MQ 9.3 LTS dev container
 mq-config/
-  20-queues.mqsc              # MQSC script: custom queue definitions (auto-run on first start)
-  seed-queues.sh              # Shell script: fills queues with random test messages
+  20-queues.mqsc              # Custom queue definitions (auto-run on first start)
+  seed-queues.sh              # Fills queues with random test messages
+tests/
+  Containerfile.ksh88         # Alpine + mksh container for ksh88 compatibility testing
+  run-ksh88-tests.sh          # Orchestrator: builds container, runs tests, reports pass/fail
+  mock-bin/                   # Mock executables (runmqsc, dspmq, curl, hostname)
+  fixtures/                   # Canned runmqsc output for testing
+docs/
+  ksh88-compat-guidelines.md  # ksh88 compatibility rules and portable alternatives
+  runmqsc-available-metrics.md
+  runmqsc-output-parsing.md
+  metrics-comparison.md
+  ibm-mq-monitoring-methods.md
+  future-improvements.md
 ```
 
-## Local Development Environment
+## ksh88 Compatibility
 
-A Podman Compose setup provides an IBM MQ 9.3 LTS container (`icr.io/ibm-messaging/mq:9.3.0.25-r1`) that mirrors the production environment (without Prometheus metrics).
+The script targets AIX ksh88. Key constraints:
 
-### Quick Start
+- No ksh arrays -- space-delimited strings instead
+- No `typeset` in `name()` functions -- per-function variable prefixes (`_cq_`, `_pl_`, etc.)
+- Escaped parentheses in parameter expansion patterns
+- Temp file + redirect instead of piped `while read` loops
+
+See `docs/ksh88-compat-guidelines.md` for the full guide.
+
+## Testing
 
 ```bash
-# Start MQ container
+# ksh88 compatibility tests (runs in mksh container, no MQ needed)
+./tests/run-ksh88-tests.sh
+
+# Integration test against live MQ container
 podman compose up -d
-
-# Wait for healthy, then seed queues with test data
 ./mq-config/seed-queues.sh
-
-# Dry-run: print ECS JSON to stdout (runmqsc must be available, or use podman exec)
-MQ_METRICS_QMGR_LIST=QM1 ./mq-metrics.ksh
-
-# Push to Elasticsearch
-MQ_METRICS_ELASTIC_URL=https://my-elastic:9200 \
-MQ_METRICS_ELASTIC_API_KEY=<base64-encoded-key> \
-MQ_METRICS_QMGR_LIST=QM1 \
-  ./mq-metrics.ksh
+MQ_METRICS_QMGR_LIST=QM1 MQ_METRICS_ADVANCED=1 ./mq-metrics.ksh
 ```
 
-### Dev Endpoints
+## Dev Endpoints
 
-| Service     | URL                                      | Credentials        |
-|-------------|------------------------------------------|---------------------|
-| MQ Listener | `localhost:1414`                         | app / passw0rd      |
-| MQ Console  | `https://localhost:9443/ibmmq/console/`  | admin / passw0rd    |
-
-### Dev Queues
-
-Default dev queues (`DEV.QUEUE.1`-`3`, `DEV.DEAD.LETTER.QUEUE`) plus custom ones:
-`APP.ORDERS.IN/OUT/DLQ`, `APP.PAYMENTS.IN/OUT/DLQ`, `APP.NOTIFY.EVENTS/ALERTS`, `APP.AUDIT.LOG`, `APP.BATCH.REQUESTS`.
-
-## Metric Extraction Approach
-
-The `runmqsc` + shell approach was chosen over alternatives:
-
-| Approach | Verdict | Reason |
-|----------|---------|--------|
-| **`runmqsc` + ksh** | **Chosen** | Zero dependencies, runs locally on AIX, trivial to deploy |
-| PCF (Java/Python) | Rejected | Requires JVM or Python runtime |
-| MQ REST API | Rejected | Requires optional `mqm.web.rte` component + `mqweb` server |
-| `amqsrua` | N/A | Does not expose queue depth (resource stats only) |
-| Prometheus exporter | N/A | Not available on all setups |
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| MQ Listener | `localhost:1414` | app / passw0rd |
+| MQ Console | `https://localhost:9443/ibmmq/console/` | admin / passw0rd |
