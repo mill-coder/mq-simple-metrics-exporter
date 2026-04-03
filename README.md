@@ -17,6 +17,24 @@ A lightweight Korn shell script that extracts metrics from IBM MQ queue managers
 
 Output: one ECS 8.11.0 JSON document per queue, sent as a single `_bulk` request to Elasticsearch.
 
+### MQ Prerequisites for Advanced Metrics
+
+Some advanced fields (timestamps, message age, queue time) require **queue monitoring** (`MONQ`) to be enabled on the queue manager. Without it, these fields return blank values and are omitted from the document. Fields like `input_handles`, `output_handles`, and `uncommitted` work regardless of MONQ.
+
+Enable globally (applies to all queues with default `MONQ(QMGR)`):
+
+```
+echo "ALTER QMGR MONQ(LOW)" | runmqsc QM1
+```
+
+Or per-queue:
+
+```
+echo "ALTER QLOCAL(APP.ORDERS.IN) MONQ(LOW)" | runmqsc QM1
+```
+
+`LOW` is recommended -- it recalculates statistics every ~64 messages with minimal overhead. `MEDIUM` (every ~8) and `HIGH` (every message) are available but rarely needed for cron-based collection.
+
 ### Example Document (advanced mode)
 
 ```json
