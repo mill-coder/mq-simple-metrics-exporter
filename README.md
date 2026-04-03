@@ -17,6 +17,52 @@ A lightweight Korn shell script that extracts metrics from IBM MQ queue managers
 
 Output: one ECS 8.11.0 JSON document per queue, sent as a single `_bulk` request to Elasticsearch.
 
+### Example Document (advanced mode)
+
+```json
+{
+    "@timestamp": "2026-04-03T17:39:48Z",
+    "ecs": { "version": "8.11.0" },
+    "event": {
+        "kind": "metric",
+        "category": ["host"],
+        "type": ["info"],
+        "module": "mq",
+        "dataset": "mq.queue"
+    },
+    "data_stream": {
+        "type": "metrics",
+        "dataset": "mq.queue",
+        "namespace": "default"
+    },
+    "host": { "name": "aix-host-01" },
+    "agent": { "name": "mq-metrics", "version": "2.0.0", "type": "mq-metrics" },
+    "service": { "name": "ibm-mq", "type": "messaging" },
+    "mq": {
+        "queue_manager": { "name": "QM1" },
+        "queue": {
+            "name": "APP.ORDERS.IN",
+            "type": "local",
+            "depth": 17,
+            "max_depth": 10000,
+            "depth_percent": 0.17,
+            "input_handles": 1,
+            "output_handles": 2,
+            "uncommitted": false,
+            "oldest_message_age": 462,
+            "queue_time_short": 12345,
+            "queue_time_long": 67890,
+            "last_put_timestamp": "2026-04-03T15:24:19Z",
+            "last_get_timestamp": "2026-04-03T14:30:05Z",
+            "last_put_elapsed_seconds": 8129,
+            "last_get_elapsed_seconds": 11383
+        }
+    }
+}
+```
+
+In basic mode (no `MQ_METRICS_ADVANCED`), `mq.queue` only contains `name`, `type`, `depth`, and `max_depth`.
+
 ## Quick Start
 
 ```bash
